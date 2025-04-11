@@ -27,12 +27,12 @@ To learn how to run the full MVP, visit the gateway api repository at the provid
 
 ## Local and Env Variables
 
-- When runing this micro service with docker using the docker-compose.yml from gateway api reposity the env variables will from there will be used.
+- When runing this micro service with docker using the docker-compose.yml from gateway api reposity the env variables from there will be used.
  
 ## How to Run Only This Microservice
  
 You must have all the Python libraries listed in requirements.txt installed.  
-After cloning the repository, navigate to the gateway api repository through the terminal to execute the commands below.
+After cloning the repository, navigate to the api repository through the terminal to execute the commands below.
  
 > It is strongly recommended to use virtual environments such as virtualenv (https://virtualenv.pypa.io/en/latest/installation.html).
  
@@ -58,7 +58,7 @@ Open [http://localhost:5000/#/](http://localhost:5000/#/) in your browser to che
 
 #tests
 
-docker-compose run api-auth-flask_app pytest
+pytest tests/test_auth.py
   
 ## About This Project
  

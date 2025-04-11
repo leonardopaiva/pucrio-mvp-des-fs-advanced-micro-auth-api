@@ -5,13 +5,6 @@ import os
 
 # importando os elementos definidos no modelo
 from model.base import Base
-from model.comentario import Comentario
-from model.produto import Produto
-from model.event import Event
-from model.user import User
-from model.location import Location
-from model.specialty import Specialty
-from model.doctor import Doctor
 
 db_path = "database/"
 # Verifica se o diretorio não existe

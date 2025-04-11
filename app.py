@@ -68,7 +68,7 @@ def login(body: LoginSchema):
         "TokenType": auth_response.get("TokenType"),
         "email": payload.get("email"),
         "name": payload.get("name"),
-        "username": payload.get("sub")  # UUID do usuário
+        "username": payload.get("sub")  # UUID do user
     }
     return jsonify({
         "status": "ok",
