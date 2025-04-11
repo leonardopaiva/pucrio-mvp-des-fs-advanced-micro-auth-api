@@ -1,321 +1,216 @@
 from flask_openapi3 import OpenAPI, Info, Tag
-from flask import redirect
-
-from schemas import *
-from services import *
-# from routes import *
+from flask import redirect, request, jsonify
 from flask_cors import CORS
+from schemas import (
+    LoginSchema,
+    RegistrationSchema,
+    ConfirmSignUpSchema,
+    ResetPasswordSchema,
+    TokenResponseSchema,
+    ErrorSchema,
+    ProtectedInputSchema,
+    RefreshSchema
+)
+from services.cognito_service import (
+    authenticate_user,
+    verify_token,
+    reset_user_password,
+    sign_up_user,
+    confirm_sign_up,
+    refresh_user
+)
 
-info = Info(title="Minha API", version="1.0.0")
+info = Info(title="API Auth com Cognito", version="1.0.0")
 app = OpenAPI(__name__, info=info)
 CORS(app)
 
-# definindo tags
-home_tag = Tag(name="Documentação", description="Seleção de documentação: Swagger, Redoc ou RapiDoc")
-produto_tag = Tag(name="Produto", description="Adição, visualização e remoção de produtos à base (testado)") #testado
-event_tag = Tag(name="Event", description="Adição, visualização e remoção de events à base (testado)") #testado
-user_tag = Tag(name="User", description="Adição, visualização e remoção de users à base (testado)")  # testado
-doctor_tag = Tag(name="Doctor", description="Adição, visualização e remoção de doctors à base (testado)") # testado
-specialty_tag = Tag(name="Specialty", description="Adição, visualização e remoção de Specialties à base (testado)") #testado
-location_tag = Tag(name="Location", description="Adição, visualização e remoção de locations à base (testado)") # testado
-comentario_tag = Tag(name="Comentario", description="Adição de um comentário à um doctor ou event cadastrado na base")
+# Definindo tags para documentação
+home_tag = Tag(name="Documentação", description="Redireciona para a documentação")
+auth_tag = Tag(name="Autenticação", description="Endpoints para autenticação com Cognito")
 
 @app.get('/', tags=[home_tag])
 def home():
-    """Redireciona para /openapi, tela que permite a escolha do estilo de documentação.
-    """
+    """Redireciona para a documentação OpenAPI."""
     return redirect('/openapi')
 
+@app.post('/login', tags=[auth_tag],
+          responses={
+              "200": TokenResponseSchema,
+              "401": ErrorSchema,
+              "400": ErrorSchema
+          })
+def login(body: LoginSchema):
+    """Realiza a autenticação com o Amazon Cognito e retorna os tokens e dados do usuário."""
+    username = body.username
+    password = body.password
+    auth_response = authenticate_user(username, password)
+    if "error" in auth_response:
+        return jsonify({
+            "status": "error",
+            "msg": auth_response["error"],
+            "data": {}
+        }), 401
 
-@app.get('/hello', tags=[home_tag])
-def hello():
-    """Retorna um simples HTML com a mensagem Hello World"""
-    return """
-    <html>
-        <head>
-            <title>Hello World</title>
-        </head>
-        <body>
-            <h1>Hello World</h1>
-        </body>
-    </html>
+    id_token = auth_response.get("IdToken")
+    payload = verify_token(id_token)
+    if not payload:
+        return jsonify({
+            "status": "error",
+            "msg": "Erro ao decodificar o token",
+            "data": {}
+        }), 401
+
+    user_data = {
+        "AccessToken": auth_response.get("AccessToken"),
+        "IdToken": id_token,
+        "RefreshToken": auth_response.get("RefreshToken"),
+        "ExpiresIn": auth_response.get("ExpiresIn"),
+        "TokenType": auth_response.get("TokenType"),
+        "email": payload.get("email"),
+        "name": payload.get("name"),
+        "username": payload.get("sub")  # UUID do usuário
+    }
+    return jsonify({
+        "status": "ok",
+        "msg": "Login realizado com sucesso.",
+        "data": user_data
+    }), 200
+
+@app.post('/reset-password', tags=[auth_tag],
+          responses={
+              "200": {"description": "Senha resetada com sucesso."},
+              "400": ErrorSchema
+          })
+def reset_password(body: ResetPasswordSchema):
+    """Reseta a senha do usuário a partir do email informado."""
+    email = body.email
+    result = reset_user_password(email)
+    if "error" in result:
+        return jsonify({
+            "status": "error",
+            "msg": result["error"],
+            "data": {}
+        }), 400
+    return jsonify({
+        "status": "ok",
+        "msg": "Senha resetada com sucesso.",
+        "data": {}
+    }), 200
+
+@app.post('/sign-up', tags=[auth_tag],
+          responses={
+              "200": {"description": "Usuário registrado com sucesso."},
+              "400": ErrorSchema
+          })
+def sign_up(body: RegistrationSchema):
+    """Registra um novo usuário no Cognito."""
+    username = body.username
+    password = body.password
+    email = body.email
+    name = body.name
+    sign_up_response = sign_up_user(username, password, email, name)
+    if "error" in sign_up_response:
+        return jsonify({
+            "status": "error",
+            "msg": sign_up_response["error"],
+            "data": {}
+        }), 400
+    return jsonify({
+        "status": "ok",
+        "msg": "Cadastro realizado com sucesso. Por favor, verifique seu email, copie o código de confirmação e complete o processo de verificação.",
+        "data": {}
+    }), 200
+
+@app.post('/confirm-sign-up', tags=[auth_tag],
+          responses={
+              "200": {"description": "Usuário confirmado com sucesso."},
+              "400": ErrorSchema
+          })
+def confirm_sign_up_route(body: ConfirmSignUpSchema):
+    """Confirma o cadastro do usuário com o código de verificação recebido por email."""
+    username = body.username
+    confirmation_code = body.confirmation_code
+    session = body.session  # opcional
+    result = confirm_sign_up(username, confirmation_code, session)
+    if "error" in result:
+        return jsonify({
+            "status": "error",
+            "msg": result["error"],
+            "data": {}
+        }), 400
+    return jsonify({
+        "status": "ok",
+        "msg": "Confirmação realizada com sucesso! Agora faça login.",
+        "data": {}
+    }), 200
+
+@app.post('/refresh-token', tags=[auth_tag],
+          responses={
+              "200": TokenResponseSchema,
+              "401": ErrorSchema,
+              "400": ErrorSchema
+          })
+def refresh_token(body: RefreshSchema):
     """
-
-#///////////////////////////////////////////////////////////////////////////////////////
-#PRODUTOS
-#///////////////////////////////////////////////////////////////////////////////////////
-@app.post('/produto', tags=[produto_tag],
-          responses={"200": ProdutoViewSchema, "409": ErrorSchema, "400": ErrorSchema})
-def add_produto(form: ProdutoSchema):
-    """Adiciona um novo Produto à base de dados
-
-    Retorna uma representação dos produtos e comentários associados.
+    Renova os tokens utilizando o refresh token via Cognito.
     """
-    return ProdutoService.add_produto(form)
-
-
-@app.get('/produtos', tags=[produto_tag],
-         responses={"200": ListagemProdutosSchema, "404": ErrorSchema})
-def get_produtos():
-    """Faz a busca por todos os Produto cadastrados
-
-    Retorna uma representação da listagem de produtos.
-    """
-    return ProdutoService.get_produtos()
-
-
-@app.get('/produto', tags=[produto_tag],
-         responses={"200": ProdutoViewSchema, "404": ErrorSchema})
-def get_produto(query: ProdutoBuscaSchema):
-    """Faz a busca por um Produto a partir do id do produto
-
-    Retorna uma representação dos produtos e comentários associados.
-    """
-    return ProdutoService.get_produto(query)
-
-
-@app.delete('/produto', tags=[produto_tag],
-            responses={"200": ProdutoDelSchema, "404": ErrorSchema})
-def del_produto(query: ProdutoBuscaSchema):
-    """Deleta um Produto a partir do nome de produto informado
-
-    Retorna uma mensagem de confirmação da remoção.
-    """
-    return ProdutoService.del_produto(query)
-    
-
-
-#///////////////////////////////////////////////////////////////////////////////////////
-#EVENTS
-#///////////////////////////////////////////////////////////////////////////////////////
-@app.post('/event', tags=[event_tag],
-          responses={"200": EventViewSchema, "409": ErrorSchema, "400": ErrorSchema})
-def add_event(form: EventSchema):
-    """Adiciona um novo Event à base de dados
-
-    Retorna uma representação dos events e comentários associados.
-    """
-    return EventService.add_event(form)
-
-
-@app.get('/events', tags=[event_tag],
-         responses={"200": ListagemEventsSchema, "404": ErrorSchema})
-def get_events():
-    """Faz a busca por todos os Event cadastrados
-
-    Retorna uma representação da listagem de events.
-    """
-    return EventService.get_events()
-
-
-@app.get('/event', tags=[event_tag],
-         responses={"200": EventViewSchema, "404": ErrorSchema})
-def get_event(query: EventBuscaSchema):
-    """Faz a busca por um Event a partir do id do event
-
-    Retorna uma representação dos events e comentários associados.
-    """
-    return EventService.get_event(query)
-
-
-@app.delete('/event', tags=[event_tag],
-            responses={"200": EventDelSchema, "404": ErrorSchema})
-def del_event(query: EventBuscaSchema):
-    """Deleta um Event a partir do name de event informado
-
-    Retorna uma mensagem de confirmação da remoção.
-    """
-    return EventService.del_event(query)
-
-#///////////////////////////////////////////////////////////////////////////////////////
-#SPECIALTIES
-#///////////////////////////////////////////////////////////////////////////////////////
-@app.post('/specialty', tags=[specialty_tag],
-          responses={"200": SpecialtyViewSchema, "409": ErrorSchema, "400": ErrorSchema})
-def add_specialty(form: SpecialtySchema):
-    """Adiciona um novo Specialty à base de dados
-
-    Retorna uma representação dos specialties e comentários associados.
-    """
-    return SpecialtyService.add_specialty(form)
-
-
-@app.get('/specialties', tags=[specialty_tag],
-         responses={"200": ListagemSpecialtiesSchema, "404": ErrorSchema})
-def get_specialties():
-    """Faz a busca por todos os Specialty cadastrados
-
-    Retorna uma representação da listagem de specialties.
-    """
-    return SpecialtyService.get_specialties()
-    
-
-
-@app.get('/specialty', tags=[specialty_tag],
-         responses={"200": SpecialtyViewSchema, "404": ErrorSchema})
-def get_specialty(query: SpecialtyBuscaSchema):
-    """Faz a busca por um Specialty a partir do name do specialty
-
-    Retorna uma representação dos specialties e comentários associados.
-    """
-    return SpecialtyService.get_specialty(query)
-
-
-@app.delete('/specialty', tags=[specialty_tag],
-            responses={"200": SpecialtyDelSchema, "404": ErrorSchema})
-def del_specialty(query: SpecialtyBuscaSchema):
-    """Deleta um Specialty a partir do name de specialty informado
-
-    Retorna uma mensagem de confirmação da remoção.
-    """
-    return SpecialtyService.del_specialty(query)
-
-#///////////////////////////////////////////////////////////////////////////////////////
-#LOCATIONS
-#///////////////////////////////////////////////////////////////////////////////////////
-@app.post('/location', tags=[location_tag],
-          responses={"200": LocationViewSchema, "409": ErrorSchema, "400": ErrorSchema})
-def add_location(form: LocationSchema):
-    """Adiciona um novo Location à base de dados
-
-    Retorna uma representação dos locations e comentários associados.
-    """
-    return LocationService.add_location(form)
-
-
-@app.get('/locations', tags=[location_tag],
-         responses={"200": ListagemLocationsSchema, "404": ErrorSchema})
-def get_locations():
-    """Faz a busca por todos os Location cadastrados
-
-    Retorna uma representação da listagem de locations.
-    """
-    return LocationService.get_locations()    
-
-
-@app.get('/location', tags=[location_tag],
-         responses={"200": LocationViewSchema, "404": ErrorSchema})
-def get_location(query: LocationBuscaSchema):
-    """Faz a busca por um Location a partir do id do location
-
-    Retorna uma representação dos locations e comentários associados.
-    """
-    return LocationService.get_location(query)
-
-
-@app.delete('/location', tags=[location_tag],
-            responses={"200": LocationDelSchema, "404": ErrorSchema})
-def del_location(query: LocationBuscaSchema):
-    """Deleta um Location a partir do name de location informado
-
-    Retorna uma mensagem de confirmação da remoção.
-    """
-    return LocationService.del_location(query)
-
-#///////////////////////////////////////////////////////////////////////////////////////
-#DOCTORS
-#///////////////////////////////////////////////////////////////////////////////////////
-@app.post('/doctor', tags=[doctor_tag],
-          responses={"200": DoctorViewSchema, "409": ErrorSchema, "400": ErrorSchema})
-def add_doctor(form: DoctorSchema):
-    """Adiciona um novo Doctor à base de dados
-
-    Retorna uma representação dos doctors e comentários associados.
-    """
-    return DoctorService.add_doctor(form)
-
-
-@app.get('/doctors', tags=[doctor_tag],
-         responses={"200": ListagemDoctorsSchema, "404": ErrorSchema})
-def get_doctors():
-    """Faz a busca por todos os Doctor cadastrados
-
-    Retorna uma representação da listagem de doctors.
-    """
-    return DoctorService.get_doctors()
-
-
-@app.get('/doctor', tags=[doctor_tag],
-         responses={"200": DoctorViewSchema, "404": ErrorSchema})
-def get_doctor(query: DoctorBuscaSchema):
-    """Faz a busca por um Doctor a partir do id do doctor
-
-    Retorna uma representação dos doctors e comentários associados.
-    """
-    return DoctorService.get_doctor(query)
-
-
-@app.delete('/doctor', tags=[doctor_tag],
-            responses={"200": DoctorDelSchema, "404": ErrorSchema})
-def del_doctor(query: DoctorBuscaSchema):
-    """Deleta um Doctor a partir do name de doctor informado
-
-    Retorna uma mensagem de confirmação da remoção.
-    """
-    return DoctorService.del_doctor(query)
-
-    
-#///////////////////////////////////////////////////////////////////////////////////////
-#USERS
-#///////////////////////////////////////////////////////////////////////////////////////
-@app.post('/user', tags=[user_tag],
-          responses={"200": UserViewSchema, "409": ErrorSchema, "400": ErrorSchema})
-def add_user(form: UserSchema):
-    """Adiciona um novo User à base de dados
-
-    Retorna uma representação dos users e comentários associados.
-    """
-    return UserService.add_user(form)
-
-
-@app.get('/users', tags=[user_tag],
-         responses={"200": ListagemUsersSchema, "404": ErrorSchema})
-def get_users():
-    """Faz a busca por todos os User cadastrados
-
-    Retorna uma representação da listagem de users.
-    """
-    UserService.get_users()
-
-
-@app.get('/user', tags=[user_tag],
-         responses={"200": UserViewSchema, "404": ErrorSchema})
-def get_user(query: UserBuscaSchema):
-    """Faz a busca por um User a partir do id do user
-
-    Retorna uma representação dos users e comentários associados.
-    """
-    return UserService.get_user(query)
-
-
-@app.delete('/user', tags=[user_tag],
-            responses={"200": UserDelSchema, "404": ErrorSchema})
-def del_user(query: UserBuscaSchema):
-    """Deleta um User a partir do name de user informado
-
-    Retorna uma mensagem de confirmação da remoção.
-    """
-    return UserService.del_user(query)
-
-
-#///////////////////////////////////////////////////////////////////////////////////////
-#COMENTARIOS
-#///////////////////////////////////////////////////////////////////////////////////////
-@app.post('/comentario/doctor', tags=[comentario_tag],
-          responses={"200": DoctorViewSchema, "404": ErrorSchema})
-def add_comentario_doctor(form: ComentarioSchema):
-    """Adição de um novo comentário à um doctor cadastrado na base identificado pelo id
-
-    Retorna uma representação do doctor e comentários associados.
-    """
-    return DoctorService.add_comentario(form)
-
-@app.post('/comentario/event', tags=[comentario_tag],
-          responses={"200": DoctorViewSchema, "404": ErrorSchema})
-def add_comentario_event(form: ComentarioSchema):
-    """Adição de um novo comentário à um event cadastrado na base identificado pelo id
-
-    Retorna uma representação do event e comentários associados.
-    """
-    return EventService.add_comentario(form)
-    
+    username = body.username
+    refresh_response = refresh_user(username, body.refreshToken)
+    if "error" in refresh_response:
+        return jsonify({
+            "status": "error",
+            "msg": refresh_response["error"],
+            "data": {}
+        }), 401
+    new_tokens = {
+        "AccessToken": refresh_response.get("AccessToken"),
+        "IdToken": refresh_response.get("IdToken", ""),
+        "RefreshToken": body.refreshToken,
+        "ExpiresIn": refresh_response.get("ExpiresIn"),
+        "TokenType": refresh_response.get("TokenType")
+    }
+    return jsonify({
+        "status": "ok",
+        "msg": "Token refreshed successfully.",
+        "data": new_tokens
+    }), 200
+
+@app.post('/protected', tags=[auth_tag],
+          responses={
+              "200": TokenResponseSchema,
+              "401": ErrorSchema
+          })
+def protected(body: ProtectedInputSchema):
+    """Endpoint protegido que exige um token válido do Cognito."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header and body.token:
+        auth_header = f"Bearer {body.token}"
+    if not auth_header:
+        return jsonify({
+            "status": "error",
+            "msg": "Authorization header missing",
+            "data": {}
+        }), 401
+    parts = auth_header.split()
+    if parts[0].lower() != "bearer" or len(parts) != 2:
+        return jsonify({
+            "status": "error",
+            "msg": "Authorization header must be Bearer token",
+            "data": {}
+        }), 401
+    token_value = parts[1]
+    payload = verify_token(token_value)
+    if not payload:
+        return jsonify({
+            "status": "error",
+            "msg": "Invalid or expired token",
+            "data": {}
+        }), 401
+    return jsonify({
+        "status": "ok",
+        "msg": "Acesso autorizado",
+        "data": {"user": payload}
+    }), 200
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)

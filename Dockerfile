@@ -17,6 +17,9 @@ COPY requirements.txt .
 # Instalar as dependências do projeto
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# Instalar flask-openapi3 com Swagger UI
+RUN pip3 install -U flask-openapi3[swagger]
+
 # Copiar o restante do código do projeto para o diretório de trabalho
 COPY . .
 

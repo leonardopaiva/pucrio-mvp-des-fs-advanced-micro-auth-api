@@ -1,3 +1,4 @@
+from .auth import LoginSchema, RegistrationSchema, ConfirmSignUpSchema, ResetPasswordSchema, ProtectedInputSchema, TokenResponseSchema, RefreshSchema, ErrorSchema
 from schemas.comentario import ComentarioSchema
 from schemas.user import UserSchema, UserBuscaSchema, UserViewSchema, \
                             ListagemUsersSchema, UserDelSchema, apresenta_users, \
