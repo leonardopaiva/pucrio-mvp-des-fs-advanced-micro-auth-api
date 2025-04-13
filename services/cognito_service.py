@@ -25,7 +25,7 @@ def get_secret_hash(username: str) -> str:
 
     print('SDSDSJDJDSJDJDJ ****** SDDSDSDDSDDS *******')
     print("Username:", username)
-    print("Client ID:", COGNITO_APP_CLIENT_ID)
+    # print("Client ID:", COGNITO_APP_CLIENT_ID)
     print("Message:", message)
 
 

@@ -1,11 +1,10 @@
 import sys
 import os
-# Adiciona o diretório raiz do projeto ao PYTHONPATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import pytest
-import app as app_module  # Importa o módulo app para patch
-from app import app     # Importa a instância do Flask
+import app as app_module
+from app import app
 
 @pytest.fixture
 def client():
@@ -71,7 +70,6 @@ def test_sign_up_missing_field(client):
         "name": "Nome do Usuário"
     }
     response = client.post("/sign-up", json=data)
-    # O Flask/OpenAPI3 retorna 422 para erro de validação do schema
     assert response.status_code == 422
 
 def test_refresh_token_success(client, monkeypatch):
