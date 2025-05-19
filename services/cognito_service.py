@@ -23,10 +23,10 @@ def get_secret_hash(username: str) -> str:
     """
     message = username + COGNITO_APP_CLIENT_ID
 
-    print('SDSDSJDJDSJDJDJ ****** SDDSDSDDSDDS *******')
+    print(' ****** Username *******')
     print("Username:", username)
     # print("Client ID:", COGNITO_APP_CLIENT_ID)
-    print("Message:", message)
+    # print("Message:", message)
 
 
     dig = hmac.new(
@@ -42,8 +42,8 @@ def authenticate_user(username: str, password: str) -> dict:
     enviando também o SECRET_HASH.
     """
     try:
-        print("XXXXXXUsername:", username)
-        print("XXXXXXpassword:", password)
+        print("XXXXXX Username:", username)
+        #print("XXXXXXpassword:", password)
 
         auth_parameters = {
             'USERNAME': username,
